@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+tickets.db
+tickets.db-shm
+tickets.db-wal
