@@ -3,8 +3,12 @@
 from datetime import datetime
 from pathlib import Path
 import sqlite3
+from typing import TYPE_CHECKING
 
 import database
+
+if TYPE_CHECKING:
+    from ai_service import AnalysisResult
 
 
 STATUS_FLOW = {
@@ -136,6 +140,40 @@ def change_status(db_path: str | Path, ticket_id: int, new_status: str) -> None:
             connection, ticket_id, current_status, new_status, _now()
         ):
             raise TicketError("工单状态已被其他操作修改，请重新查询后再试")
+
+
+def save_ai_suggestion(
+    db_path: str | Path, ticket_id: int, result: "AnalysisResult"
+) -> int:
+    """保存建议；此函数不会更新工单的正式分类或优先级。"""
+    category = _enum(result.category, "AI 建议分类", database.CATEGORIES)
+    priority = _enum(result.priority, "AI 建议优先级", database.PRIORITIES)
+    summary = _text(result.summary, "AI 建议摘要", 200)
+    reason = _text(result.reason, "AI 建议理由", 1000)
+    model = _text(result.model, "AI 模型", 200)
+    raw_response = _text(result.raw_response, "AI 原始响应", 5000)
+
+    with database.connect(db_path) as connection:
+        if database.fetch_ticket(connection, ticket_id) is None:
+            raise TicketError(f"工单不存在：{ticket_id}")
+        return database.insert_ai_suggestion(
+            connection,
+            ticket_id=ticket_id,
+            category=category,
+            priority=priority,
+            summary=summary,
+            reason=reason,
+            model=model,
+            raw_response=raw_response,
+            timestamp=_now(),
+        )
+
+
+def list_ai_suggestions(
+    db_path: str | Path, ticket_id: int
+) -> list[sqlite3.Row]:
+    with database.connect(db_path) as connection:
+        return database.fetch_ai_suggestions(connection, ticket_id)
 
 
 SAMPLE_TICKETS = (

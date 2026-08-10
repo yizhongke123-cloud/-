@@ -1,6 +1,6 @@
 # 智能工单协同系统
 
-这是面试 AI Coding 题目的阶段性实现。本仓库当前完成 **阶段 1：最小工单系统** 和 **阶段 2：工程加固与自动化测试**，使用 Python 命令行和 SQLite 本地数据库，不包含 Web 前端、AI 分析或复杂框架。
+这是面试 AI Coding 题目的阶段性实现。本仓库当前完成 **阶段 1：最小工单系统**、**阶段 2：工程加固与自动化测试** 和 **阶段 3：AI 辅助分析**，使用 Python 命令行和 SQLite 本地数据库，不包含 Web 前端或复杂框架。
 
 ## 阶段 1 已完成功能
 
@@ -20,6 +20,16 @@
 - SQLite 打开、读写或约束异常会转换为简明中文提示，不向普通用户展示堆栈。
 - 新增 11 个 pytest 测试，覆盖正常、异常、边界、组合筛选和持久化场景。
 
+## 阶段 3 已完成 AI 辅助分析
+
+- 在独立 `ai_service.py` 中调用真实的 OpenAI 兼容 API。
+- 根据工单标题和描述建议分类、优先级、一句话摘要和判断理由。
+- API Key、模型和兼容接口地址只从环境变量读取。
+- Prompt 把工单内容标记为不可信数据，禁止执行其中夹带的指令。
+- 模型响应必须通过 JSON、字段类型、字段集合、长度和枚举校验。
+- AI 结果只写入独立的 `ai_suggestions` 表，不自动修改正式工单。
+- 缺少配置、错误密钥、超时、网络错误或非法响应统一显示“AI分析不可用”，基础命令仍可使用。
+
 ## 文件说明
 
 | 文件 | 作用 |
@@ -27,7 +37,10 @@
 | `app.py` | CLI 入口，定义 `init`、`create`、`list`、`show`、`status` 命令。 |
 | `database.py` | 使用标准库 `sqlite3` 建表并执行参数化 SQL。 |
 | `ticket_service.py` | 输入校验、重复检测、组合筛选和状态流转等业务规则。 |
+| `ai_service.py` | 构造安全 Prompt、调用真实模型并严格校验返回结果。 |
+| `main.py` | 推荐启动入口，兼容原有全部命令并提供 `analyze`。 |
 | `tests/test_ticket_system.py` | 阶段 2 自动化测试，使用独立临时数据库。 |
+| `tests/test_ai_service.py` | AI JSON、枚举、提示注入、建议隔离和失败降级测试。 |
 | `requirements.txt` | 测试环境所需的 pytest 依赖。 |
 | `.gitignore` | 排除本地数据库、Python 缓存和虚拟环境。 |
 
@@ -78,6 +91,40 @@ python app.py status 6 IN_PROGRESS
 python app.py list --status IN_PROGRESS --category "账号权限"
 ```
 
+## 配置并使用 AI 分析
+
+先在当前 PowerShell 会话设置环境变量。不要把真实密钥写进代码或提交到 Git：
+
+```powershell
+$env:AI_API_KEY="你的 API Key"
+$env:AI_MODEL="你的模型名称"
+```
+
+使用 OpenAI 兼容服务时，再设置它提供的基础地址；使用 OpenAI 官方接口时可以不设置：
+
+```powershell
+$env:AI_BASE_URL="https://你的兼容服务地址/v1"
+```
+
+分析指定工单：
+
+```powershell
+python main.py analyze 1
+python main.py show 1
+```
+
+`analyze` 会保存并显示建议，但不会覆盖工单原有的正式分类和优先级。
+
+AI 调用数据流：
+
+1. 根据 ID 从 SQLite 读取工单标题和描述。
+2. 将标题和描述作为不可信 JSON 数据发送给模型。
+3. 模型尝试返回 `category`、`priority`、`summary`、`reason` JSON。
+4. 程序重新解析并检查全部字段和枚举值。
+5. 只有校验成功的结果才保存到 `ai_suggestions`，正式工单保持不变。
+
+任何配置、网络、认证、超时或响应校验错误都会在第 4 步之前或之中终止，只显示“AI分析不可用”，不会保存半成品建议。
+
 可选值：
 
 - 状态：`OPEN`、`IN_PROGRESS`、`RESOLVED`、`CLOSED`
@@ -98,8 +145,8 @@ python -m pytest -v
 
 测试使用 pytest 提供的临时目录，每个测试都有独立 SQLite 数据库，不会修改正式的 `tickets.db`，也没有通过固定返回值绕过真实业务逻辑。
 
-阶段 2 完成时的实际运行结果：`11 passed`。
+阶段 3 完成时的实际运行结果：`19 passed`。
 
 ## 当前范围
 
-当前已完成阶段 1 和阶段 2。AI 分析与人工确认闭环将在后续阶段分别加入。
+当前已完成阶段 1、阶段 2 和阶段 3。AI 建议仍然只能查看，人工确认闭环将在后续阶段加入。

@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import sys
 
+import ai_service
 import database
 import ticket_service
 
@@ -43,6 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser = subparsers.add_parser("status", help="修改工单状态")
     status_parser.add_argument("ticket_id", type=int, metavar="ID")
     status_parser.add_argument("new_status", choices=database.STATUSES)
+
+    analyze_parser = subparsers.add_parser("analyze", help="获取并保存 AI 分析建议")
+    analyze_parser.add_argument("ticket_id", type=int, metavar="ID")
 
     return parser
 
@@ -105,11 +109,33 @@ def run_command(args: argparse.Namespace) -> None:
         print(f"状态：{ticket['status']}")
         print(f"创建时间：{ticket['created_at']}")
         print(f"更新时间：{ticket['updated_at']}")
+        suggestions = ticket_service.list_ai_suggestions(db_path, args.ticket_id)
+        if suggestions:
+            print("AI 建议历史（未自动应用）：")
+            for suggestion in suggestions:
+                print(
+                    f"  建议 {suggestion['id']}：{suggestion['category']} / "
+                    f"{suggestion['priority']} | {suggestion['summary']}"
+                )
         return
 
     if args.command == "status":
         ticket_service.change_status(db_path, args.ticket_id, args.new_status)
         print(f"工单 {args.ticket_id} 状态已修改为 {args.new_status}")
+        return
+
+    if args.command == "analyze":
+        ticket = ticket_service.get_ticket(db_path, args.ticket_id)
+        result = ai_service.analyze_ticket(ticket["title"], ticket["description"])
+        suggestion_id = ticket_service.save_ai_suggestion(
+            db_path, args.ticket_id, result
+        )
+        print("AI 建议已保存，不会自动修改正式工单：")
+        print(f"建议 ID：{suggestion_id}")
+        print(f"分类建议：{result.category}")
+        print(f"优先级建议：{result.priority}")
+        print(f"摘要：{result.summary}")
+        print(f"理由：{result.reason}")
 
 
 def main() -> int:
@@ -117,6 +143,9 @@ def main() -> int:
     args = parser.parse_args()
     try:
         run_command(args)
+    except ai_service.AIUnavailableError as error:
+        print(f"AI分析不可用：{error}", file=sys.stderr)
+        return 1
     except ticket_service.TicketError as error:
         print(f"错误：{error}", file=sys.stderr)
         return 1

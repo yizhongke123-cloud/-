@@ -2,6 +2,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .idea/
+.env
+.env.*
 .venv/
 venv/
 tickets.db

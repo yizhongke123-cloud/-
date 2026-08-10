@@ -15,6 +15,7 @@ def connect(db_path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     """连接数据库，并让查询结果可以按列名读取。"""
     connection = sqlite3.connect(str(db_path), timeout=5)
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
 
@@ -37,6 +38,24 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 UNIQUE (title, description)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_suggestions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticket_id INTEGER NOT NULL,
+                category TEXT NOT NULL
+                    CHECK (category IN ('账号权限', '软件故障', '网络问题', '硬件设备', '其他')),
+                priority TEXT NOT NULL
+                    CHECK (priority IN ('P0', 'P1', 'P2', 'P3')),
+                summary TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                model TEXT NOT NULL,
+                raw_response TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (ticket_id) REFERENCES tickets(id)
             )
             """
         )
@@ -129,3 +148,52 @@ def update_status(
         (new_status, timestamp, ticket_id, current_status),
     )
     return cursor.rowcount == 1
+
+
+def insert_ai_suggestion(
+    connection: sqlite3.Connection,
+    *,
+    ticket_id: int,
+    category: str,
+    priority: str,
+    summary: str,
+    reason: str,
+    model: str,
+    raw_response: str,
+    timestamp: str,
+) -> int:
+    cursor = connection.execute(
+        """
+        INSERT INTO ai_suggestions (
+            ticket_id, category, priority, summary, reason,
+            model, raw_response, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            ticket_id,
+            category,
+            priority,
+            summary,
+            reason,
+            model,
+            raw_response,
+            timestamp,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
+def fetch_ai_suggestions(
+    connection: sqlite3.Connection, ticket_id: int
+) -> list[sqlite3.Row]:
+    return list(
+        connection.execute(
+            """
+            SELECT * FROM ai_suggestions
+            WHERE ticket_id = ?
+            ORDER BY id
+            """,
+            (ticket_id,),
+        ).fetchall()
+    )
