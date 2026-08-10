@@ -2,6 +2,8 @@
 
 import argparse
 from pathlib import Path
+import sqlite3
+import sys
 
 import database
 import ticket_service
@@ -116,7 +118,13 @@ def main() -> int:
     try:
         run_command(args)
     except ticket_service.TicketError as error:
-        print(f"错误：{error}")
+        print(f"错误：{error}", file=sys.stderr)
+        return 1
+    except sqlite3.Error:
+        print(
+            "错误：数据库操作失败，请检查数据库路径、文件权限或磁盘空间。",
+            file=sys.stderr,
+        )
         return 1
     return 0
 
