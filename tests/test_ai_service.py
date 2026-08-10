@@ -157,8 +157,9 @@ def test_suggestion_does_not_change_official_fields(tmp_path: Path) -> None:
     assert suggestion_id > 0
     assert ticket["category"] == "其他"
     assert ticket["priority"] == "P3"
-    assert suggestions[0]["category"] == "网络问题"
-    assert suggestions[0]["priority"] == "P1"
+    assert suggestions[0]["ai_category"] == "网络问题"
+    assert suggestions[0]["ai_priority"] == "P1"
+    assert suggestions[0]["decision"] == "PENDING"
 
 
 def test_api_failure_becomes_unavailable(

@@ -150,8 +150,6 @@ def save_ai_suggestion(
     priority = _enum(result.priority, "AI 建议优先级", database.PRIORITIES)
     summary = _text(result.summary, "AI 建议摘要", 200)
     reason = _text(result.reason, "AI 建议理由", 1000)
-    model = _text(result.model, "AI 模型", 200)
-    raw_response = _text(result.raw_response, "AI 原始响应", 5000)
 
     with database.connect(db_path) as connection:
         if database.fetch_ticket(connection, ticket_id) is None:
@@ -159,12 +157,10 @@ def save_ai_suggestion(
         return database.insert_ai_suggestion(
             connection,
             ticket_id=ticket_id,
-            category=category,
-            priority=priority,
-            summary=summary,
-            reason=reason,
-            model=model,
-            raw_response=raw_response,
+            ai_category=category,
+            ai_priority=priority,
+            ai_summary=summary,
+            ai_reason=reason,
             timestamp=_now(),
         )
 
@@ -174,6 +170,71 @@ def list_ai_suggestions(
 ) -> list[sqlite3.Row]:
     with database.connect(db_path) as connection:
         return database.fetch_ai_suggestions(connection, ticket_id)
+
+
+def confirm_ai_suggestion(
+    db_path: str | Path,
+    ticket_id: int,
+    *,
+    final_category: str | None = None,
+    final_priority: str | None = None,
+) -> sqlite3.Row:
+    """确认最新待处理建议；可由人工覆盖最终分类或优先级。"""
+    with database.connect(db_path) as connection:
+        if database.fetch_ticket(connection, ticket_id) is None:
+            raise TicketError(f"工单不存在：{ticket_id}")
+        suggestion = database.fetch_latest_pending_ai_suggestion(
+            connection, ticket_id
+        )
+        if suggestion is None:
+            raise TicketError("该工单没有待确认的 AI 建议")
+
+        category = _enum(
+            final_category or suggestion["ai_category"],
+            "人工最终分类",
+            database.CATEGORIES,
+        )
+        priority = _enum(
+            final_priority or suggestion["ai_priority"],
+            "人工最终优先级",
+            database.PRIORITIES,
+        )
+        if not database.confirm_ai_suggestion(
+            connection,
+            suggestion_id=suggestion["id"],
+            ticket_id=ticket_id,
+            final_category=category,
+            final_priority=priority,
+            timestamp=_now(),
+        ):
+            raise TicketError("AI 建议已被其他操作处理，请重新查看工单")
+        confirmed = database.fetch_ai_suggestion(connection, suggestion["id"])
+        if confirmed is None:  # 数据库一致性保护，正常情况下不会发生
+            raise TicketError("确认结果保存失败")
+        return confirmed
+
+
+def reject_ai_suggestion(db_path: str | Path, ticket_id: int) -> sqlite3.Row:
+    """拒绝最新待处理建议，不修改正式工单。"""
+    with database.connect(db_path) as connection:
+        if database.fetch_ticket(connection, ticket_id) is None:
+            raise TicketError(f"工单不存在：{ticket_id}")
+        suggestion = database.fetch_latest_pending_ai_suggestion(
+            connection, ticket_id
+        )
+        if suggestion is None:
+            raise TicketError("该工单没有待处理的 AI 建议")
+        if not database.reject_ai_suggestion(
+            connection,
+            suggestion_id=suggestion["id"],
+            ticket_id=ticket_id,
+            timestamp=_now(),
+        ):
+            raise TicketError("AI 建议已被其他操作处理，请重新查看工单")
+        rejected = database.fetch_ai_suggestion(connection, suggestion["id"])
+        if rejected is None:  # 数据库一致性保护，正常情况下不会发生
+            raise TicketError("拒绝结果保存失败")
+        return rejected
 
 
 SAMPLE_TICKETS = (

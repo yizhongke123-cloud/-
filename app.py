@@ -48,6 +48,22 @@ def build_parser() -> argparse.ArgumentParser:
     analyze_parser = subparsers.add_parser("analyze", help="获取并保存 AI 分析建议")
     analyze_parser.add_argument("ticket_id", type=int, metavar="ID")
 
+    confirm_parser = subparsers.add_parser(
+        "confirm-ai", help="人工确认最新的 AI 建议"
+    )
+    confirm_parser.add_argument("ticket_id", type=int, metavar="ID")
+    confirm_parser.add_argument(
+        "--category", choices=database.CATEGORIES, help="人工最终分类（默认采用 AI 建议）"
+    )
+    confirm_parser.add_argument(
+        "--priority", choices=database.PRIORITIES, help="人工最终优先级（默认采用 AI 建议）"
+    )
+
+    reject_parser = subparsers.add_parser(
+        "reject-ai", help="人工拒绝最新的 AI 建议"
+    )
+    reject_parser.add_argument("ticket_id", type=int, metavar="ID")
+
     return parser
 
 
@@ -111,12 +127,22 @@ def run_command(args: argparse.Namespace) -> None:
         print(f"更新时间：{ticket['updated_at']}")
         suggestions = ticket_service.list_ai_suggestions(db_path, args.ticket_id)
         if suggestions:
-            print("AI 建议历史（未自动应用）：")
+            print("AI 建议与人工处理历史：")
             for suggestion in suggestions:
+                print(f"  建议 {suggestion['id']}（{suggestion['decision']}）")
                 print(
-                    f"  建议 {suggestion['id']}：{suggestion['category']} / "
-                    f"{suggestion['priority']} | {suggestion['summary']}"
+                    f"    AI 原始建议：{suggestion['ai_category']} / "
+                    f"{suggestion['ai_priority']}"
                 )
+                print(f"    AI 摘要：{suggestion['ai_summary']}")
+                print(f"    AI 理由：{suggestion['ai_reason']}")
+                if suggestion["decision"] == "CONFIRMED":
+                    print(
+                        f"    人工最终结果：{suggestion['final_category']} / "
+                        f"{suggestion['final_priority']}"
+                    )
+                if suggestion["decided_at"]:
+                    print(f"    人工处理时间：{suggestion['decided_at']}")
         return
 
     if args.command == "status":
@@ -136,6 +162,23 @@ def run_command(args: argparse.Namespace) -> None:
         print(f"优先级建议：{result.priority}")
         print(f"摘要：{result.summary}")
         print(f"理由：{result.reason}")
+        return
+
+    if args.command == "confirm-ai":
+        suggestion = ticket_service.confirm_ai_suggestion(
+            db_path,
+            args.ticket_id,
+            final_category=args.category,
+            final_priority=args.priority,
+        )
+        print(f"AI 建议 {suggestion['id']} 已由人工确认并应用到正式工单。")
+        print(f"最终分类：{suggestion['final_category']}")
+        print(f"最终优先级：{suggestion['final_priority']}")
+        return
+
+    if args.command == "reject-ai":
+        suggestion = ticket_service.reject_ai_suggestion(db_path, args.ticket_id)
+        print(f"AI 建议 {suggestion['id']} 已由人工拒绝，正式工单未修改。")
 
 
 def main() -> int:

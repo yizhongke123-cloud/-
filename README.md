@@ -1,6 +1,6 @@
 # 智能工单协同系统
 
-这是面试 AI Coding 题目的阶段性实现。本仓库当前完成 **阶段 1：最小工单系统**、**阶段 2：工程加固与自动化测试** 和 **阶段 3：AI 辅助分析**，使用 Python 命令行和 SQLite 本地数据库，不包含 Web 前端或复杂框架。
+这是面试 AI Coding 题目的阶段性实现。本仓库当前完成 **阶段 1：最小工单系统**、**阶段 2：工程加固与自动化测试**、**阶段 3：AI 辅助分析** 和 **阶段 4：人工确认闭环**，使用 Python 命令行和 SQLite 本地数据库，不包含 Web 前端或复杂框架。
 
 ## 阶段 1 已完成功能
 
@@ -30,17 +30,28 @@
 - AI 结果只写入独立的 `ai_suggestions` 表，不自动修改正式工单。
 - 缺少配置、错误密钥、超时、网络错误或非法响应统一显示“AI分析不可用”，基础命令仍可使用。
 
+## 阶段 4 已完成人工确认闭环
+
+- AI 分析后只持久化 `ai_category`、`ai_priority`、`ai_summary`、`ai_reason` 四项原始业务建议。
+- 建议初始为 `PENDING`，正式工单分类和优先级不会自动改变。
+- `confirm-ai` 由人工确认最新待处理建议后，才把最终分类和优先级写入正式工单。
+- 人工可用 `--category`、`--priority` 覆盖 AI 建议，AI 原始四字段仍保持不变。
+- `reject-ai` 可拒绝建议，正式工单保持不变。
+- 建议状态、人工最终结果、分析时间和处理时间分开保存，`show` 可查看完整历史。
+- 已有阶段 3 数据库首次运行时会自动迁移，保留原有四项建议内容。
+
 ## 文件说明
 
 | 文件 | 作用 |
 | --- | --- |
-| `app.py` | CLI 入口，定义 `init`、`create`、`list`、`show`、`status` 命令。 |
-| `database.py` | 使用标准库 `sqlite3` 建表并执行参数化 SQL。 |
-| `ticket_service.py` | 输入校验、重复检测、组合筛选和状态流转等业务规则。 |
+| `app.py` | CLI 入口，包含基础工单、AI 分析、人工确认和拒绝命令。 |
+| `database.py` | 使用标准库 `sqlite3` 建表、迁移建议表并执行参数化 SQL 和确认事务。 |
+| `ticket_service.py` | 工单规则、建议保存、人工确认和拒绝等业务逻辑。 |
 | `ai_service.py` | 构造安全 Prompt、调用真实模型并严格校验返回结果。 |
-| `main.py` | 推荐启动入口，兼容原有全部命令并提供 `analyze`。 |
+| `main.py` | 推荐启动入口，兼容全部命令。 |
 | `tests/test_ticket_system.py` | 阶段 2 自动化测试，使用独立临时数据库。 |
 | `tests/test_ai_service.py` | AI JSON、枚举、提示注入、建议隔离和失败降级测试。 |
+| `tests/test_ai_confirmation.py` | 人工确认、人工覆盖、拒绝、重复处理保护和旧库迁移测试。 |
 | `requirements.txt` | 测试环境所需的 pytest 依赖。 |
 | `.gitignore` | 排除本地数据库、Python 缓存和虚拟环境。 |
 
@@ -49,8 +60,8 @@
 ## 环境要求
 
 - Python 3.10 或更高版本。
-- 运行工单程序只使用 Python 标准库。
-- 运行自动化测试需要 pytest。
+- 基础工单和 SQLite 访问只使用 Python 标准库。
+- AI 调用需要 openai，运行自动化测试需要 pytest；均列在 `requirements.txt` 中。
 
 安装测试依赖：
 
@@ -115,13 +126,33 @@ python main.py show 1
 
 `analyze` 会保存并显示建议，但不会覆盖工单原有的正式分类和优先级。
 
+人工确认并采用 AI 建议：
+
+```powershell
+python main.py confirm-ai 1
+python main.py show 1
+```
+
+人工修正后再确认：
+
+```powershell
+python main.py confirm-ai 1 --category "其他" --priority P2
+```
+
+拒绝最新待处理建议：
+
+```powershell
+python main.py reject-ai 1
+```
+
 AI 调用数据流：
 
 1. 根据 ID 从 SQLite 读取工单标题和描述。
 2. 将标题和描述作为不可信 JSON 数据发送给模型。
 3. 模型尝试返回 `category`、`priority`、`summary`、`reason` JSON。
 4. 程序重新解析并检查全部字段和枚举值。
-5. 只有校验成功的结果才保存到 `ai_suggestions`，正式工单保持不变。
+5. 只有校验成功的四项业务建议才保存到 `ai_suggestions`，状态为 `PENDING`，正式工单保持不变。
+6. 人工确认后，程序在一个数据库事务中保存人工最终值并更新正式工单；拒绝时只记录拒绝状态。
 
 任何配置、网络、认证、超时或响应校验错误都会在第 4 步之前或之中终止，只显示“AI分析不可用”，不会保存半成品建议。
 
@@ -145,8 +176,8 @@ python -m pytest -v
 
 测试使用 pytest 提供的临时目录，每个测试都有独立 SQLite 数据库，不会修改正式的 `tickets.db`，也没有通过固定返回值绕过真实业务逻辑。
 
-阶段 3 完成时的实际运行结果：`19 passed`。
+阶段 4 完成时的实际运行结果：`26 passed`。
 
 ## 当前范围
 
-当前已完成阶段 1、阶段 2 和阶段 3。AI 建议仍然只能查看，人工确认闭环将在后续阶段加入。
+当前已完成阶段 1、阶段 2、阶段 3 和阶段 4。系统保持纯命令行实现，未增加前端、登录、权限或消息通知。
